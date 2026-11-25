@@ -1,0 +1,11 @@
+{
+  "name": "agrisahayak-app",
+  "version": "2.0.0",
+  "description": "AgriSahayak - Digital Agriculture Support System",
+  "scripts": {
+    "server": "node server/server.js",
+    "client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "node server/server.js"
+  }
+}

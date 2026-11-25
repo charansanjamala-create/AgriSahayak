@@ -1,0 +1,779 @@
+// server/database/db.js - In-memory and persistent agricultural database store for AgriSahayak
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DB_FILE = path.join(__dirname, 'agri_store.json');
+
+// Master Agriculture Data
+const initialData = {
+  crops: [
+    {
+      id: 'tomato',
+      name: 'Tomato (टमाटर / టమోటా)',
+      scientificName: 'Solanum lycopersicum',
+      category: 'Vegetable',
+      idealPh: '6.0 - 6.8',
+      waterNeedLitersPerAcreDay: 18000,
+      growingDays: 110,
+      msp: 1200,
+      stages: [
+        { stage: 'Nursery / Sowing', days: '0-25 days', waterAdvice: 'Light daily misting', tasks: 'Treat seeds with Trichoderma viride' },
+        { stage: 'Vegetative Growth', days: '25-50 days', waterAdvice: 'Every 3-4 days', tasks: 'Apply Nitrogen & Phosphorous top dressing, staking' },
+        { stage: 'Flowering Stage', days: '50-70 days', waterAdvice: 'Avoid water stress, uniform moisture', tasks: 'Foliar spray of micronutrients (Boron, Zinc)' },
+        { stage: 'Fruit Formation', days: '70-95 days', waterAdvice: 'High water requirement, drip recommended', tasks: 'Potash application for fruit size and shine' },
+        { stage: 'Harvesting', days: '95-120 days', waterAdvice: 'Reduce watering 3 days before picking', tasks: 'Harvest at breaker stage for long distance transport' }
+      ],
+      commonDiseases: ['Early Blight', 'Late Blight', 'Tomato Leaf Curl Virus', 'Bacterial Wilt', 'Blossom End Rot']
+    },
+    {
+      id: 'cotton',
+      name: 'Cotton (कपास / పత్తి)',
+      scientificName: 'Gossypium hirsutum',
+      category: 'Commercial Cash Crop',
+      idealPh: '6.5 - 8.0',
+      waterNeedLitersPerAcreDay: 22000,
+      growingDays: 160,
+      msp: 7122,
+      stages: [
+        { stage: 'Germination & Seedling', days: '0-20 days', waterAdvice: 'Adequate seedbed moisture', tasks: 'Gap filling and thinning at 12-15 DAS' },
+        { stage: 'Square Formation', days: '35-60 days', waterAdvice: 'Critical watering stage', tasks: 'Monitor for sucking pests (Jassids, Thrips, Whitefly)' },
+        { stage: 'Flowering & Boll Formation', days: '60-110 days', waterAdvice: 'Uniform irrigation, avoid moisture stress', tasks: 'Spray 1% DAP + 1% KCl at flowering' },
+        { stage: 'Boll Bursting & Picking', days: '110-160 days', waterAdvice: 'Stop irrigation 20 days prior', tasks: 'Pick clean cotton after 10 AM (dry dew)' }
+      ],
+      commonDiseases: ['Cotton Leaf Curl Virus', 'Bacterial Blight', 'Root Rot', 'Grey Mildew', 'Bollworm Infestation']
+    },
+    {
+      id: 'paddy',
+      name: 'Paddy / Rice (धान / వరి)',
+      scientificName: 'Oryza sativa',
+      category: 'Cereal Grain',
+      idealPh: '5.5 - 6.5',
+      waterNeedLitersPerAcreDay: 35000,
+      growingDays: 135,
+      msp: 2300,
+      stages: [
+        { stage: 'Nursery Raising', days: '0-25 days', waterAdvice: 'Keep saturated, not submerged early', tasks: 'Seed treatment with Carbendazim & Bio-fertilizers' },
+        { stage: 'Transplanting & Tillering', days: '25-60 days', waterAdvice: 'Maintain 2-3 cm standing water', tasks: 'Apply Basal NPK + Zinc Sulphate 25kg/ha' },
+        { stage: 'Panicle Initiation & Flowering', days: '60-95 days', waterAdvice: 'Maintain 5 cm standing water (Crucial)', tasks: 'Top dress Urea + Potash, monitor for Stem Borer' },
+        { stage: 'Grain Filling & Maturity', days: '95-135 days', waterAdvice: 'Drain water 10-12 days before harvest', tasks: 'Harvest when 85% grains turn golden yellow' }
+      ],
+      commonDiseases: ['Rice Blast', 'Bacterial Leaf Blight (BLB)', 'Sheath Blight', 'Brown Plant Hopper (BPH)', 'Stem Borer']
+    },
+    {
+      id: 'chilli',
+      name: 'Chilli / Green Pepper (मिर्च / మిరప)',
+      scientificName: 'Capsicum annuum',
+      category: 'Spice / Vegetable',
+      idealPh: '6.0 - 7.5',
+      waterNeedLitersPerAcreDay: 16000,
+      growingDays: 150,
+      msp: 14500,
+      stages: [
+        { stage: 'Nursery & Transplanting', days: '0-35 days', waterAdvice: 'Light frequent irrigation', tasks: 'Dip roots in Imidacloprid solution before planting' },
+        { stage: 'Vegetative & Branching', days: '35-70 days', waterAdvice: 'Irrigate every 5-7 days', tasks: 'Nipping terminal buds for more lateral branches' },
+        { stage: 'Flowering & Fruit Setting', days: '70-110 days', waterAdvice: 'Consistent moisture (prevent flower drop)', tasks: 'Spray Planofix @ 0.25ml/L to arrest flower dropping' },
+        { stage: 'Multiple Pickings', days: '110-160 days', waterAdvice: 'Moderate irrigation after each picking', tasks: 'Grade harvested chillies based on color and size' }
+      ],
+      commonDiseases: ['Chilli Leaf Curl (Gemini Virus)', 'Anthracnose / Dieback', 'Powdery Mildew', 'Thrips & Mites infestation', 'Bacterial Wilt']
+    },
+    {
+      id: 'wheat',
+      name: 'Wheat (गेहूं / గోధుమలు)',
+      scientificName: 'Triticum aestivum',
+      category: 'Cereal Grain',
+      idealPh: '6.0 - 7.5',
+      waterNeedLitersPerAcreDay: 15000,
+      growingDays: 125,
+      msp: 2275,
+      stages: [
+        { stage: 'Crown Root Initiation (CRI)', days: '20-25 DAS', waterAdvice: 'Most critical irrigation', tasks: 'Apply 1st split dose of Urea' },
+        { stage: 'Tillering Stage', days: '40-45 DAS', waterAdvice: '2nd irrigation', tasks: 'Weed management (Clodinafop/Metsulfuron)' },
+        { stage: 'Jointing & Flowering', days: '60-85 DAS', waterAdvice: '3rd & 4th irrigation', tasks: 'Spray 13-0-45 (Potassium Nitrate) for bold grains' },
+        { stage: 'Milking & Dough Stage', days: '85-115 DAS', waterAdvice: 'Light watering, avoid high wind days', tasks: 'Inspect for Yellow/Brown Rust' },
+        { stage: 'Harvesting', days: '120-130 DAS', waterAdvice: 'Stop irrigation', tasks: 'Combine harvest at 12-14% grain moisture' }
+      ],
+      commonDiseases: ['Yellow Rust (Stripe Rust)', 'Brown Rust', 'Loose Smut', 'Karnal Bunt', 'Aphids / Termites']
+    },
+    {
+      id: 'sugarcane',
+      name: 'Sugarcane (गन्ना / చెరకు)',
+      scientificName: 'Saccharum officinarum',
+      category: 'Cash Crop',
+      idealPh: '6.5 - 7.5',
+      waterNeedLitersPerAcreDay: 28000,
+      growingDays: 360,
+      msp: 340,
+      stages: [
+        { stage: 'Germination Phase', days: '0-45 days', waterAdvice: 'Irrigate every 7-10 days', tasks: 'Trash mulching for moisture retention' },
+        { stage: 'Formative / Tillering', days: '45-120 days', waterAdvice: 'Frequent irrigation', tasks: 'Earthing up & nitrogen top dressing' },
+        { stage: 'Grand Growth Period', days: '120-270 days', waterAdvice: 'Maximum water demand', tasks: 'Detrashing dry bottom leaves, propping' },
+        { stage: 'Maturity & Ripening', days: '270-360 days', waterAdvice: 'Withhold water 25 days before harvest', tasks: 'Hand refractometer brix testing (18-20%)' }
+      ],
+      commonDiseases: ['Red Rot', 'Smut', 'Wilt', 'Early Shoot Borer', 'Pyrilla']
+    },
+    {
+      id: 'maize',
+      name: 'Maize / Corn (मक्का / మొక్కజొన్న)',
+      scientificName: 'Zea mays',
+      category: 'Cereal / Fodder',
+      idealPh: '5.8 - 7.2',
+      waterNeedLitersPerAcreDay: 17000,
+      growingDays: 105,
+      msp: 2090,
+      stages: [
+        { stage: 'Seedling Phase', days: '0-20 days', waterAdvice: 'Maintain moist seedbed', tasks: 'Scout for Fall Armyworm (FAW) egg masses' },
+        { stage: 'Knee High Stage', days: '20-40 days', waterAdvice: 'Irrigate every 6-8 days', tasks: 'Side-dress Urea, whorl application of Emamectin if FAW seen' },
+        { stage: 'Tasseling & Silking', days: '45-65 days', waterAdvice: 'Critical moisture period', tasks: 'Ensure no water stress during pollination' },
+        { stage: 'Grain Filling & Harvest', days: '65-105 days', waterAdvice: 'Taper off watering', tasks: 'Harvest when black layer forms at grain base' }
+      ],
+      commonDiseases: ['Fall Armyworm', 'Turcicum Leaf Blight', 'Maydis Leaf Blight', 'Banded Leaf and Sheath Blight']
+    },
+    {
+      id: 'soybean',
+      name: 'Soybean (सोयाबीन / సోయాబీన్)',
+      scientificName: 'Glycine max',
+      category: 'Oilseed / Legume',
+      idealPh: '6.0 - 7.0',
+      waterNeedLitersPerAcreDay: 14000,
+      growingDays: 95,
+      msp: 4892,
+      stages: [
+        { stage: 'Emergence & Vegetative', days: '0-30 days', waterAdvice: 'Rainfed / light irrigation', tasks: 'Rhizobium and PSB seed inoculation' },
+        { stage: 'Flowering Stage', days: '30-55 days', waterAdvice: 'Critical if dry spell occurs', tasks: 'Foliar spray of 19:19:19 @ 1%' },
+        { stage: 'Pod Development & Harvest', days: '55-95 days', waterAdvice: 'Maintain soil moisture', tasks: 'Monitor for Girdle Beetle and Semilooper' }
+      ],
+      commonDiseases: ['Yellow Mosaic Virus', 'Charcoal Rot', 'Rust', 'Girdle Beetle', 'Pod Borer']
+    }
+  ],
+
+  mandiPrices: [
+    {
+      id: 'm1',
+      state: 'Telangana',
+      district: 'Warangal',
+      market: 'Warangal APMC Yard',
+      crop: 'Cotton',
+      variety: 'Bunny / DCH-32',
+      grade: 'FAQ (Fair Average Quality)',
+      minPrice: 7100,
+      maxPrice: 7650,
+      modalPrice: 7420,
+      msp: 7122,
+      unit: '₹ / Quintal',
+      trend: 'up',
+      changePercent: '+3.2%',
+      arrivalsQuintals: 3450,
+      updatedAt: 'Today, 02:30 PM'
+    },
+    {
+      id: 'm2',
+      state: 'Telangana',
+      district: 'Khammam',
+      market: 'Khammam Cotton Market',
+      crop: 'Cotton',
+      variety: 'Long Staple',
+      grade: 'Super',
+      minPrice: 7250,
+      maxPrice: 7780,
+      modalPrice: 7550,
+      msp: 7122,
+      unit: '₹ / Quintal',
+      trend: 'up',
+      changePercent: '+4.1%',
+      arrivalsQuintals: 2800,
+      updatedAt: 'Today, 01:15 PM'
+    },
+    {
+      id: 'm3',
+      state: 'Andhra Pradesh',
+      district: 'Guntur',
+      market: 'Guntur Mirchi Yard',
+      crop: 'Chilli',
+      variety: 'Teja / 334',
+      grade: 'Export Grade',
+      minPrice: 17500,
+      maxPrice: 22400,
+      modalPrice: 19800,
+      msp: 14500,
+      unit: '₹ / Quintal',
+      trend: 'up',
+      changePercent: '+5.5%',
+      arrivalsQuintals: 14200,
+      updatedAt: 'Today, 03:45 PM'
+    },
+    {
+      id: 'm4',
+      state: 'Maharashtra',
+      district: 'Nashik',
+      market: 'Lasalgaon Mandi',
+      crop: 'Onion',
+      variety: 'Red Onion (Garva)',
+      grade: 'Medium Bold',
+      minPrice: 2400,
+      maxPrice: 3250,
+      modalPrice: 2850,
+      msp: 1800,
+      unit: '₹ / Quintal',
+      trend: 'up',
+      changePercent: '+2.8%',
+      arrivalsQuintals: 21500,
+      updatedAt: 'Today, 11:30 AM'
+    },
+    {
+      id: 'm5',
+      state: 'Karnataka',
+      district: 'Kolar',
+      market: 'Kolar APMC Market',
+      crop: 'Tomato',
+      variety: 'Hybrid F1 (Sahu/Abhinav)',
+      grade: 'A-Grade Firm',
+      minPrice: 1400,
+      maxPrice: 2100,
+      modalPrice: 1800,
+      msp: 1100,
+      unit: '₹ / Quintal',
+      trend: 'down',
+      changePercent: '-2.1%',
+      arrivalsQuintals: 8700,
+      updatedAt: 'Today, 01:00 PM'
+    },
+    {
+      id: 'm6',
+      state: 'Punjab',
+      district: 'Khanna',
+      market: 'Khanna Grain Market',
+      crop: 'Wheat',
+      variety: 'HD-2967 / HD-3086',
+      grade: 'FAQ Clean',
+      minPrice: 2320,
+      maxPrice: 2450,
+      modalPrice: 2380,
+      msp: 2275,
+      unit: '₹ / Quintal',
+      trend: 'stable',
+      changePercent: '0.0%',
+      arrivalsQuintals: 18500,
+      updatedAt: 'Today, 12:45 PM'
+    },
+    {
+      id: 'm7',
+      state: 'Madhya Pradesh',
+      district: 'Indore',
+      market: 'Indore Choithram Mandi',
+      crop: 'Soybean',
+      variety: 'JS-9560 / JS-2034',
+      grade: 'Yellow Bold',
+      minPrice: 4750,
+      maxPrice: 5120,
+      modalPrice: 4980,
+      msp: 4892,
+      unit: '₹ / Quintal',
+      trend: 'up',
+      changePercent: '+1.8%',
+      arrivalsQuintals: 11200,
+      updatedAt: 'Today, 02:00 PM'
+    },
+    {
+      id: 'm8',
+      state: 'Tamil Nadu',
+      district: 'Thanjavur',
+      market: 'Thanjavur Regulated Market',
+      crop: 'Paddy',
+      variety: 'ADT-45 / Ponni',
+      grade: 'Grade-A Fine',
+      minPrice: 2380,
+      maxPrice: 2600,
+      modalPrice: 2510,
+      msp: 2320,
+      unit: '₹ / Quintal',
+      trend: 'up',
+      changePercent: '+1.5%',
+      arrivalsQuintals: 9300,
+      updatedAt: 'Today, 04:10 PM'
+    }
+  ],
+
+  governmentSchemes: [
+    {
+      id: 'pm-kisan',
+      name: 'PM-KISAN (Pradhan Mantri Kisan Samman Nidhi)',
+      category: 'Farmer Financial Support',
+      level: 'Central Government',
+      state: 'All India',
+      targetBeneficiary: 'Small, Marginal & All Landholding Farmers',
+      benefit: '₹6,000 per year in 3 equal installments of ₹2,000 directly to bank account via DBT.',
+      eligibility: 'All landholding farmer families with cultivable land in their names. Excludes institutional landholders, tax-paying professionals.',
+      requiredDocuments: ['Aadhaar Card', 'Land Ownership Records (Pahani / ROR / 7/12 / Khatoni)', 'Bank Account linked with Aadhaar (Aadhaar Seeded)', 'Active Mobile Number'],
+      applicationProcess: '1. Visit official pmkisan.gov.in portal. 2. Click "New Farmer Registration". 3. Enter Aadhaar & verify OTP. 4. Enter Land Details & submit. 5. Alternatively register at CSC or local Village Revenue Officer (VRO).',
+      officialUrl: 'https://pmkisan.gov.in',
+      status: 'Active / Open'
+    },
+    {
+      id: 'pmfby',
+      name: 'PMFBY (Pradhan Mantri Fasal Bima Yojana)',
+      category: 'Crop Insurance',
+      level: 'Central Government',
+      state: 'All India',
+      targetBeneficiary: 'All Farmers (Loanee and Non-Loanee, Sharecroppers)',
+      benefit: 'Comprehensive crop loss cover against natural calamities, drought, flood, pests, post-harvest losses. Farmer premium is only 2% for Kharif, 1.5% for Rabi, and 5% for Commercial/Horticultural crops.',
+      eligibility: 'Farmers growing notified crops in notified areas. Non-loanee farmers need valid tenancy/land records.',
+      requiredDocuments: ['Land Record / Lease Agreement', 'Sowing Certificate / Declaration from Revenue/Agri Officer', 'Aadhaar Card', 'Bank Passbook copy'],
+      applicationProcess: '1. Register on pmfby.gov.in or via bank branch / CSC center before the season cut-off date. 2. In case of crop loss, report within 72 hours via Crop Insurance App or toll-free number 1800-180-1551.',
+      officialUrl: 'https://pmfby.gov.in',
+      status: 'Active / Open'
+    },
+    {
+      id: 'kcc',
+      name: 'Kisan Credit Card (KCC) Scheme',
+      category: 'Agriculture Loans / Finance',
+      level: 'Central Government / RBI',
+      state: 'All India',
+      targetBeneficiary: 'Individual Farmers, Joint Borrowers, Tenant Farmers, SHGs',
+      benefit: 'Subsidized institutional credit up to ₹3,00,000 at an effective interest rate of just 4% per annum (7% basic minus 3% prompt repayment incentive). Collateral-free limit up to ₹1,60,000.',
+      eligibility: 'Owner cultivators, tenant farmers, oral lessees, and sharecroppers cultivating notified land.',
+      requiredDocuments: ['Duly filled KCC application form', 'Identity Proof (Aadhaar / Voter ID)', 'Address Proof', 'Land Registry Copy / Tenancy proof', 'Passport photo'],
+      applicationProcess: '1. Apply at any Public Sector / Commercial Bank, Regional Rural Bank (RRB), or Cooperative Bank. 2. Can also apply online via JanSamarth portal or SBI Yono Krishi.',
+      officialUrl: 'https://jansamarth.in',
+      status: 'Active / Open'
+    },
+    {
+      id: 'pm-kusum',
+      name: 'PM-KUSUM (Pradhan Mantri Kisan Urja Suraksha evam Utthaan Mahabhiyan)',
+      category: 'Solar Irrigation / Equipment',
+      level: 'Central Government',
+      state: 'All India',
+      targetBeneficiary: 'Individual Farmers, Water User Associations, FPOs',
+      benefit: 'Up to 60% subsidy (30% Central + 30% State) for setting up Standalone Solar Agriculture Pumps (3 HP to 10 HP) and solarizing existing grid-connected pumps. Farmer pays only 10% cash.',
+      eligibility: 'Farmers having cultivable land with a water source (borewell/well) needing off-grid or solarized pump.',
+      requiredDocuments: ['Aadhaar Card', 'Land Record (ROR)', 'Water source NOC / Certificate', 'Bank Account details'],
+      applicationProcess: 'Apply through State Renewable Energy Agency portal (e.g. REDA, MEDA, TSREDCO, APREDA) or State Agriculture Department.',
+      officialUrl: 'https://pmkusum.mnre.gov.in',
+      status: 'Active / Open'
+    },
+    {
+      id: 'smam',
+      name: 'SMAM (Sub-Mission on Agricultural Mechanization)',
+      category: 'Agricultural Equipment / Machinery',
+      level: 'Central Government',
+      state: 'All India',
+      targetBeneficiary: 'Small & Marginal Farmers, SC/ST, Women Farmers, CHC Centers',
+      benefit: '40% to 50% financial subsidy on purchase of Tractors, Power Tillers, Rotavators, Combine Harvesters, Drone Sprayers, and Laser Land Levelers. 80% subsidy for setting up Custom Hiring Centers (CHCs).',
+      eligibility: 'Farmers registered on the DBT Agri-Machinery portal with valid Aadhaar and land records.',
+      requiredDocuments: ['Aadhaar Card', 'Land Document (7/12, Khatauni, Patta)', 'Bank Passbook', 'Caste Certificate (for SC/ST concession)'],
+      applicationProcess: '1. Register on agrimachinery.nic.in. 2. Select machinery manufacturer & dealer. 3. Receive permit/approval SMS. 4. Purchase and submit invoice for direct subsidy credit.',
+      officialUrl: 'https://agrimachinery.nic.in',
+      status: 'Active / Open'
+    },
+    {
+      id: 'soil-health-card',
+      name: 'National Soil Health Card Scheme',
+      category: 'Soil Health & Nutrients',
+      level: 'Central Government',
+      state: 'All India',
+      targetBeneficiary: 'All Farmers across all states',
+      benefit: 'Free soil testing report covering 12 parameters (pH, EC, Organic Carbon, Nitrogen, Phosphorus, Potassium, Sulphur, Zinc, Iron, Copper, Manganese, Boron) with customized fertilizer dosage.',
+      eligibility: 'All farmers possessing farm land.',
+      requiredDocuments: ['Farmer Aadhaar', 'Survey number / plot coordinates'],
+      applicationProcess: 'Soil samples are collected free of cost by Village Agriculture Assistants or farmers can submit samples to nearest Krishi Vigyan Kendra (KVK). View cards on soilhealth.dac.gov.in.',
+      officialUrl: 'https://soilhealth.dac.gov.in',
+      status: 'Active / Open'
+    },
+    {
+      id: 'rythu-bharosa',
+      name: 'Rythu Bharosa / Rythu Bandhu Investment Support',
+      category: 'State-Specific Schemes',
+      level: 'State Government',
+      state: 'Telangana & Andhra Pradesh',
+      targetBeneficiary: 'Landowning Farmers & Tenant Farmers',
+      benefit: 'Direct financial investment support of ₹10,000 to ₹15,000 per acre per year credited before Kharif and Rabi seasons to purchase quality seeds, fertilizers, and farm inputs.',
+      eligibility: 'Resident farmers with verified digital land records (Dharani / Meebhoomi).',
+      requiredDocuments: ['Passbook / Dharani Title deed', 'Aadhaar Card', 'Aadhaar linked Bank account'],
+      applicationProcess: 'Enrolled automatically via Dharani / Revenue land records or through Village Agriculture Assistant verification.',
+      officialUrl: 'https://dharani.telangana.gov.in',
+      status: 'Active / Open'
+    },
+    {
+      id: 'aif',
+      name: 'Agriculture Infrastructure Fund (AIF)',
+      category: 'Storage & Transportation',
+      level: 'Central Government',
+      state: 'All India',
+      targetBeneficiary: 'Farmers, Agri-Entrepreneurs, FPOs, Cooperatives, Startups',
+      benefit: 'Medium to long term debt financing for post-harvest management infrastructure (Cold stores, Warehouses, Silos, Sorting/Grading units) with 3% per annum interest subvention up to ₹2 Crores.',
+      eligibility: 'Individuals, FPOs, PACS, SHGs, Agri-entrepreneurs.',
+      requiredDocuments: ['Detailed Project Report (DPR)', 'KYC documents', 'Land ownership / lease deed for site', 'Balance sheet / IT returns'],
+      applicationProcess: 'Apply online on agriinfra.dac.gov.in portal. Selected loan proposals forwarded to participating banks with automated 3% interest relief.',
+      officialUrl: 'https://agriinfra.dac.gov.in',
+      status: 'Active / Open'
+    }
+  ],
+
+  experts: [
+    {
+      id: 'exp-1',
+      name: 'Dr. Rameshwar Reddy',
+      title: 'Senior Agronomist & Crop Specialist',
+      institution: 'Professor Jayashankar Telangana State Agricultural University (PJTSAU)',
+      experience: '22 Years',
+      specialization: 'Cotton, Paddy, Red Gram, Crop Rotation & Micro-Nutrients',
+      languages: ['English', 'Telugu', 'Hindi'],
+      rating: 4.9,
+      reviewsCount: 312,
+      availability: 'Available Today (10 AM - 6 PM)',
+      avatar: '👨‍🏫',
+      verified: true
+    },
+    {
+      id: 'exp-2',
+      name: 'Dr. Priya S. Sharma',
+      title: 'Plant Pathologist & Disease Diagnostic Expert',
+      institution: 'Indian Agricultural Research Institute (IARI / Pusa)',
+      experience: '16 Years',
+      specialization: 'Fungal/Viral Foliar Diseases, Tomato, Chilli, Potato & Horticulture',
+      languages: ['English', 'Hindi', 'Marathi'],
+      rating: 4.8,
+      reviewsCount: 245,
+      availability: 'Available Today (11 AM - 5 PM)',
+      avatar: '👩‍🔬',
+      verified: true
+    },
+    {
+      id: 'exp-3',
+      name: 'Dr. Venkatesh Murthy',
+      title: 'Soil Health & Irrigation Engineering Scientist',
+      institution: 'University of Agricultural Sciences (UAS), Bangalore',
+      experience: '19 Years',
+      specialization: 'Soil pH Correction, Drip Fertigation, Salinity & Micronutrient Deficiencies',
+      languages: ['English', 'Kannada', 'Tamil', 'Telugu'],
+      rating: 4.9,
+      reviewsCount: 189,
+      availability: 'Available Tomorrow (9 AM - 2 PM)',
+      avatar: '👨‍🌾',
+      verified: true
+    },
+    {
+      id: 'exp-4',
+      name: 'Dr. Subhashree Banerjee',
+      title: 'Entomologist & Biological Pest Management Lead',
+      institution: 'Bidhan Chandra Krishi Viswavidyalaya (BCKV), West Bengal',
+      experience: '14 Years',
+      specialization: 'IPM, Pheromone Traps, Bio-Pesticides, Stem Borer & Sucking Pests',
+      languages: ['English', 'Bengali', 'Hindi'],
+      rating: 4.7,
+      reviewsCount: 154,
+      availability: 'Available Today (2 PM - 7 PM)',
+      avatar: '👩‍💼',
+      verified: true
+    }
+  ],
+
+  machinery: [
+    {
+      id: 'mach-1',
+      name: '35 - 45 HP Multi-Purpose Tractor',
+      category: 'Tractors',
+      idealLandSize: '2 - 10 Acres',
+      bestForCrops: 'Paddy, Cotton, Maize, Vegetables, Wheat',
+      avgCostNew: '₹5,50,000 - ₹7,20,000',
+      rentalRatePerHour: '₹800 - ₹1,100 / hr (with fuel & operator)',
+      subsidyAvailable: 'Up to 40% under SMAM (50% for Women/SC/ST)',
+      keyImplements: ['Rotavator 5ft', 'Cultivator 7-Tyne', 'Disc Harrow', 'Trailer (4-Tonne)'],
+      tips: 'Ensure Dual Clutch and Power Steering for ease of operation during puddling in paddy fields.'
+    },
+    {
+      id: 'mach-2',
+      name: 'Multi-Crop Rotavator (5 to 6 Feet)',
+      category: 'Tillage Equipment',
+      idealLandSize: '1 - 25 Acres',
+      bestForCrops: 'All crops (Paddy stubble, Wheat seedbed, Sugarcane ratoon)',
+      avgCostNew: '₹95,000 - ₹1,35,000',
+      rentalRatePerHour: '₹600 - ₹900 / hr',
+      subsidyAvailable: '50% subsidy under State Mechanization Scheme',
+      keyImplements: ['L-type blades for wet soil', 'C-type blades for dry hard soil'],
+      tips: 'Prepares fine seedbed in a single pass; pulverizes crop residue for rapid organic decomposition.'
+    },
+    {
+      id: 'mach-3',
+      name: 'Multi-Rotor Agricultural Drone Sprayer (10L / 16L)',
+      category: 'Precision Agriculture / Spraying',
+      idealLandSize: '5 - 50+ Acres (Custom Hiring / Group use)',
+      bestForCrops: 'Cotton, Paddy, Sugarcane, Maize, Orchards',
+      avgCostNew: '₹4,50,000 - ₹8,00,000',
+      rentalRatePerHour: '₹450 - ₹600 per Acre (Takes only 7 minutes per acre!)',
+      subsidyAvailable: 'Up to ₹5 Lakhs for FPOs / 50% for Agri-Graduates',
+      keyImplements: ['Ultra Low Volume Nozzles', 'Obstacle Avoidance Radar', 'GPS RTK module'],
+      tips: 'Saves 90% water and 30% chemical cost; prevents human exposure to hazardous pesticide sprays.'
+    },
+    {
+      id: 'mach-4',
+      name: 'Automatic Multi-Crop Seed Drill / Happy Seeder',
+      category: 'Sowing Equipment',
+      idealLandSize: '3 - 20 Acres',
+      bestForCrops: 'Wheat, Soybean, Gram, Mustard, Maize',
+      avgCostNew: '₹75,000 - ₹1,40,000',
+      rentalRatePerHour: '₹700 - ₹1,000 / hr',
+      subsidyAvailable: '50% - 60% subsidy for in-situ residue management',
+      keyImplements: ['Fertilizer Box metering', 'Adjustable row spacing (15-30 cm)'],
+      tips: 'Allows direct zero-tillage sowing of wheat into standing paddy stubble without burning.'
+    }
+  ],
+
+  learningArticles: [
+    {
+      id: 'art-1',
+      title: 'How to Manage Yellowing Leaves in Tomato & Chilli (Early vs Late Blight)',
+      category: 'Crop Health & Disease',
+      readingTime: '4 min read',
+      summary: 'Learn how to differentiate nitrogen deficiency from fungal blights and safe organic bio-fungicide treatments like Trichoderma & Copper Oxychloride.',
+      content: `### Understanding Yellow Leaves in Solanaceous Crops
+Yellowing in leaves can arise from 3 distinct origins:
+
+1. **Nutrient Deficiency (Nitrogen/Iron/Magnesium)**: Older bottom leaves turn pale yellow evenly while veins remain green (Chlorosis).
+2. **Early Blight (Alternaria solani)**: Dark brown concentric target-like rings with yellow halos starting from lower leaves.
+3. **Late Blight (Phytophthora infestans)**: Water-soaked dark brown irregular lesions that rapidly turn greasy and rot during cool, humid nights.
+
+#### Practical Action Plan:
+- **Drainage**: Ensure no water stagnation around the root collar.
+- **Organic Bio-spray**: Spray *Pseudomonas fluorescens* @ 5g/Litre or Neem Oil 10,000 ppm @ 3ml/L.
+- **Chemical Option (Follow Label Safely)**: Mancozeb 75 WP @ 2.5g/L or Metalaxyl 8% + Mancozeb 64% WP @ 2g/L.
+- **Always observe a 7-day harvest waiting period after chemical sprays.**`
+    },
+    {
+      id: 'art-2',
+      title: 'Step-by-Step Drip Irrigation & Water Saving Guide for Small Farms',
+      category: 'Water & Irrigation',
+      readingTime: '5 min read',
+      summary: 'Maximize crop yields while cutting water and labor costs by 60% through low-cost gravity and inline drip systems.',
+      content: `### Why Drip Irrigation is Essential for Future Farming
+Drip irrigation delivers water directly to the plant root zone with 90-95% application efficiency, compared to only 45-50% for flood furrow methods.
+
+#### Key Setup Steps:
+1. **Header Unit**: Screen filter (120 mesh) or disc filter to prevent dripper clogging from sand or algae.
+2. **Main & Sub-main Line**: High density PVC or HDPE pipes buried 1.5 feet underground.
+3. **Laterals & Emitters**: 16mm inline lateral tubes with drippers spaced at 30cm or 40cm (2 to 4 Litres per hour discharge).
+4. **Fertigation Venturi Injector**: Allows precise feeding of water-soluble fertilizers (19:19:19, 0:52:34) directly into irrigation water.
+
+#### Maintenance Tips:
+- Flush lateral end caps once every 15 days for 3 minutes.
+- Carry out acid treatment (Hydrochloric or Nitric acid @ pH 4.0) once a season to dissolve carbonate scaling.`
+    },
+    {
+      id: 'art-3',
+      title: 'Complete Kisan Credit Card (KCC) Loan Guide & Interest Subvention',
+      category: 'Finance & Loans',
+      readingTime: '3 min read',
+      summary: 'How to get institutional bank credit at 4% effective interest rate, avoid money-lenders, and understand insurance coverage.',
+      content: `### Kisan Credit Card (KCC) Explained Simply
+The Kisan Credit Card offers a flexible revolving cash credit limit calculated based on scale of finance per acre for each crop plus 10% for post-harvest expenses and 20% for farm asset maintenance.
+
+#### Key Features:
+- **Base Interest Rate**: 7% per annum.
+- **Prompt Repayment Incentive (PRI)**: 3% rebate by Government of India.
+- **Effective Final Interest**: **Only 4% per annum!**
+- **Collateral Free**: No land mortgage needed for loans up to ₹1,60,000 (extended to ₹3,00,000 under tie-up agreements).
+- **Insurance**: Built-in accident insurance coverage.`
+    }
+  ],
+
+  emergencySOS: [
+    {
+      type: 'Sudden Massive Pest Swarm (Locust / Fall Armyworm)',
+      severity: 'CRITICAL (Immediate Action)',
+      immediateAction: '1. Photograph pest & egg masses. 2. Contact District Agriculture Officer (DAO) immediately. 3. Community light traps / pheromone traps. 4. Neem-based Azadirachtin spray barrier.',
+      helpline: '1800-180-1551 (Kisan Call Center National Free Toll)'
+    },
+    {
+      type: 'Severe Flash Flooding & Field Waterlogging',
+      severity: 'HIGH (Action within 24 Hours)',
+      immediateAction: '1. Dig peripheral trench drains immediately to remove standing water. 2. Do not walk on saturated soil to avoid root compaction. 3. Foliar spray 1% Urea + 1% Potash once water drains to rejuvenate root respiration.',
+      helpline: 'State Disaster Agriculture Helpline: 1070 / 1077'
+    },
+    {
+      type: 'Accidental Chemical / Herbicide Spray Burn',
+      severity: 'HIGH (Action within 12 Hours)',
+      immediateAction: '1. Immediately flood field with fresh water to dilute root uptake. 2. Spray pure humic acid (3ml/L) + Seaweed extract (2ml/L) as anti-stress biostimulant. 3. Avoid any synthetic nitrogen fertilizers for 10 days.',
+      helpline: 'Poison / Chemical Helpline: 1800-116-117'
+    }
+  ],
+
+  problemReports: [
+    {
+      id: 'AGRI-2026-8921',
+      farmerName: 'Ramesh Patel',
+      crop: 'Tomato',
+      location: 'Chittoor, Andhra Pradesh',
+      date: '2026-09-01',
+      symptoms: 'Yellow mosaic mottling on young top leaves with leaf curling and stunted shoot growth.',
+      aiDiagnosis: 'Suspected Tomato Leaf Curl Virus (ToLCV) transmitted by Bemisia tabaci (Whitefly)',
+      severity: 'Moderate to High',
+      status: 'Diagnosis Provided',
+      suggestedNextSteps: [
+        'Install yellow sticky traps (15 per acre) to trap whitefly vectors',
+        'Spray Neem Oil (10,000 ppm) @ 3ml/L or bio-insecticide Beauveria bassiana',
+        'Rogue out and safely bury severely stunted non-productive infected plants'
+      ]
+    },
+    {
+      id: 'AGRI-2026-8922',
+      farmerName: 'Suresh Kumar',
+      crop: 'Cotton',
+      location: 'Warangal, Telangana',
+      date: '2026-09-02',
+      symptoms: 'Circular reddish-brown spots with shot-hole appearance on middle canopy leaves.',
+      aiDiagnosis: 'Bacterial Blight / Angular Leaf Spot (Xanthomonas albilineans / campestris)',
+      severity: 'Moderate',
+      status: 'Expert Review Pending',
+      suggestedNextSteps: [
+        'Avoid sprinkler irrigation or excessive overhead moisture',
+        'Spray Copper Oxychloride 50 WP @ 3g/L + Streptocycline 1g/10L water',
+        'Maintain balanced potassium fertilization to bolster plant cell wall defense'
+      ]
+    }
+  ],
+
+  marketplaceListings: [
+    {
+      id: 'list-1',
+      type: 'Sell Produce',
+      farmerName: 'K. Balakrishna',
+      phone: '+91 98480 XXXXX',
+      crop: 'Chilli (Teja Variety)',
+      quantity: '40 Quintals',
+      grade: 'Grade-A Sun Dried (Deep Red, Low Moisture < 10%)',
+      location: 'Guntur, Andhra Pradesh',
+      expectedPrice: '₹19,500 / Quintal',
+      availableDate: 'Ready for immediate dispatch',
+      verifiedFarmer: true
+    },
+    {
+      id: 'list-2',
+      type: 'Sell Produce',
+      farmerName: 'Harpreet Singh',
+      phone: '+91 98140 XXXXX',
+      crop: 'Sharbati Wheat (Grain)',
+      quantity: '120 Quintals',
+      grade: 'Golden Bold Luster (High Protein)',
+      location: 'Ludhiana, Punjab',
+      expectedPrice: '₹2,650 / Quintal',
+      availableDate: 'Ready in warehouse',
+      verifiedFarmer: true
+    },
+    {
+      id: 'list-3',
+      type: 'Buyer Requirement',
+      farmerName: 'AgroFresh Processing Ltd.',
+      phone: '+91 94401 XXXXX',
+      crop: 'Tomato (Processing Hybrid)',
+      quantity: '200 Quintals needed',
+      grade: 'Firm Red, Brix > 4.5, Min size 50mm',
+      location: 'Kolar / Bangalore Rural',
+      expectedPrice: '₹1,900 / Quintal (Spot payment at gate)',
+      availableDate: 'Immediate daily procurement',
+      verifiedFarmer: true
+    }
+  ]
+};
+
+// Initialize or Load from Disk
+class AgriDatabase {
+  constructor() {
+    this.data = this.loadData();
+  }
+
+  loadData() {
+    try {
+      if (fs.existsSync(DB_FILE)) {
+        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+        return JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn('Could not read existing db file, using initial data:', e.message);
+    }
+    this.saveData(initialData);
+    return JSON.parse(JSON.stringify(initialData));
+  }
+
+  saveData(dataToSave) {
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(dataToSave || this.data, null, 2), 'utf-8');
+    } catch (e) {
+      console.error('Failed to save to db file:', e.message);
+    }
+  }
+
+  // Accessors
+  getCrops() { return this.data.crops; }
+  getCropById(id) { return this.data.crops.find(c => c.id.toLowerCase() === id.toLowerCase() || c.name.toLowerCase().includes(id.toLowerCase())); }
+  
+  getMandiPrices(filters = {}) {
+    let list = this.data.mandiPrices;
+    if (filters.state) list = list.filter(m => m.state.toLowerCase().includes(filters.state.toLowerCase()));
+    if (filters.crop) list = list.filter(m => m.crop.toLowerCase().includes(filters.crop.toLowerCase()));
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      list = list.filter(m => m.market.toLowerCase().includes(q) || m.crop.toLowerCase().includes(q) || m.district.toLowerCase().includes(q));
+    }
+    return list;
+  }
+
+  getSchemes(filters = {}) {
+    let list = this.data.governmentSchemes;
+    if (filters.category && filters.category !== 'All') {
+      list = list.filter(s => s.category.toLowerCase().includes(filters.category.toLowerCase()));
+    }
+    if (filters.state && filters.state !== 'All India') {
+      list = list.filter(s => s.state === 'All India' || s.state.toLowerCase().includes(filters.state.toLowerCase()));
+    }
+    if (filters.search) {
+      const q = filters.search.toLowerCase();
+      list = list.filter(s => s.name.toLowerCase().includes(q) || s.benefit.toLowerCase().includes(q) || s.category.toLowerCase().includes(q));
+    }
+    return list;
+  }
+
+  getExperts() { return this.data.experts; }
+  getMachinery() { return this.data.machinery; }
+  getLearningArticles() { return this.data.learningArticles; }
+  getEmergencySOS() { return this.data.emergencySOS; }
+  getProblemReports() { return this.data.problemReports; }
+
+  addProblemReport(report) {
+    const newReport = {
+      id: `AGRI-2026-${Math.floor(1000 + Math.random() * 9000)}`,
+      date: new Date().toISOString().split('T')[0],
+      status: 'Diagnosis Generated',
+      ...report
+    };
+    this.data.problemReports.unshift(newReport);
+    this.saveData();
+    return newReport;
+  }
+
+  getMarketplace() { return this.data.marketplaceListings; }
+  addMarketplaceListing(item) {
+    const newItem = {
+      id: `list-${Date.now()}`,
+      verifiedFarmer: true,
+      ...item
+    };
+    this.data.marketplaceListings.unshift(newItem);
+    this.saveData();
+    return newItem;
+  }
+
+  addExpertRequest(req) {
+    const newReq = {
+      id: `EXP-REQ-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      status: 'Assigned to Specialist',
+      ...req
+    };
+    this.saveData();
+    return newReq;
+  }
+}
+
+export const db = new AgriDatabase();
